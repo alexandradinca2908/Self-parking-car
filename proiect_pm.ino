@@ -41,6 +41,7 @@ const float CAR_SPEED_CM_PER_MS = 0.04;      // Approximate car speed for distan
 //  Parking parameters
 const float BACK_OBSTACLE_THRESHOLD = 15.0;  // Stop when 15cm from back obstacle
 const int ROTATION_TIME_45_DEG = 1000;       // Time in ms for 45 degree rotation
+const int ERROR_5_DEG = 118;                // Added error for 90 degree rotation
 
 //  Button state: 0 = idle, 1 = forward, 2 = found lateral park, 3 = found reverse park
 volatile int state = 0;
@@ -56,6 +57,7 @@ float spotLength = 0;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 void setup() {
+  //  Set up motors
   pinMode(motor1pin1, OUTPUT);
   pinMode(motor1pin2, OUTPUT);
   pinMode(enable1, OUTPUT);
@@ -64,9 +66,11 @@ void setup() {
   pinMode(motor2pin2, OUTPUT);
   pinMode(enable2, OUTPUT);
 
+  //  Set up button
   pinMode(buttonPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(buttonPin), changeState, FALLING);
 
+  //  Set up ultrasound sensors
   pinMode(trigPinF, OUTPUT);
   pinMode(echoPinF, INPUT);
   
@@ -88,7 +92,7 @@ void setup() {
   //  Make sure motors are off initially
   stopMotors();
   
-  //   Read the temperature
+  //   Read the temperature (twice for more accuracy)
   int raw = analogRead(tempPin);
   raw = analogRead(tempPin);
   tempC = raw * (5.0 / 1024.0) * 100.0 - 15.0;
@@ -110,7 +114,7 @@ void loop() {
     delay(200);
   
   //   Parking search initiated
-  } else if (state == 1) {    
+  } else if (state == 1) {
     //  Clear LCD
     lcd.clear();
 
@@ -119,6 +123,7 @@ void loop() {
     float midDistance = readMidDistance();
     
     //  Check for obstacle in front
+    //  Impact detected
     if (frontDistance <= OBSTACLE_THRESHOLD) {
       //  Stop motors when obstacle detected within 20 cm
       stopMotors();
@@ -134,11 +139,14 @@ void loop() {
   
       //  Additional delay to display message
       delay(2000);
+    
+    //  Path clear
     } else {
       //  Check for parking spot using middle sensor
       checkParkingSpot(midDistance);
     }
   }
+
   //  Found lateral parking spot
   else if (state == 2) {
     //  Stop motors
@@ -153,12 +161,13 @@ void loop() {
     //  Additional delay to display message
     delay(2000);
     
-    //  Execute lateral parking maneuver
+    //  Execute lateral parking
     lateralPark();
     
     //  Return to idle state after parking
     state = 0;
   }
+
   //  Found reverse parking spot
   else if (state == 3) {
     //  Stop motors
@@ -173,6 +182,9 @@ void loop() {
     //  Additional delay to display message
     delay(2000);
     
+    //  Execute reverse parking
+    reversePark();
+
     //  Return to idle state
     state = 0;
   }
@@ -180,14 +192,14 @@ void loop() {
 
 void lateralPark() {
   //  Rotate 45 degrees counter-clockwise
-  rotateCounterClockwise45();
+  rotateCounterClockwise(ROTATION_TIME_45_DEG + ERROR_5_DEG);
   delay(500);
   
   backUpUntilObstacle();
   delay(500);
   
   //  Rotate 45 degrees clockwise
-  rotateClockwise45();
+  rotateClockwise(ROTATION_TIME_45_DEG + ERROR_5_DEG);
   delay(500);
   
   //  Parking complete
@@ -198,31 +210,45 @@ void lateralPark() {
   delay(2000);
 }
 
-void rotateClockwise45() {
-  //  Set motor speeds for rotation
+void reversePark() {
+  //  Reset speed
   analogWrite(enable1, 200);
   analogWrite(enable2, 200);
-  
+  delay(50);
+
+  //  Rotate 90 degrees
+  rotateCounterClockwise(ROTATION_TIME_45_DEG * 2 + ERROR_5_DEG);
+  delay(500);
+
+  //  Back up until the parking spot is filled
+  backUpUntilObstacle();
+  delay(500);
+
+  //  Parking complete
+  lcd.setCursor(0, 0);
+  lcd.print("Parking         ");
+  lcd.setCursor(0, 1);
+  lcd.print("complete!       ");
+  delay(2000);
+}
+
+void rotateClockwise(int rotation_time) {  
   //  Rotate clockwise
   //  Left motor forward
   digitalWrite(motor1pin1, HIGH);
   digitalWrite(motor1pin2, LOW);
-  // Right motor backward
+  //  Right motor backward
   digitalWrite(motor2pin1, HIGH);
   digitalWrite(motor2pin2, LOW);
   
   //  Rotate for calculated time
-  delay(ROTATION_TIME_45_DEG);
+  delay(rotation_time);
   
   //  Stop motors
   stopMotors();
 }
 
-void rotateCounterClockwise45() {
-  //  Set motor speeds for rotation
-  analogWrite(enable1, 200);
-  analogWrite(enable2, 200);
-  
+void rotateCounterClockwise(int rotation_time) {  
   //  Rotate counter-clockwise
   //  Left motor backward
   digitalWrite(motor1pin1, LOW);
@@ -232,7 +258,7 @@ void rotateCounterClockwise45() {
   digitalWrite(motor2pin2, HIGH);
   
   //  Rotate for calculated time
-  delay(ROTATION_TIME_45_DEG);
+  delay(rotation_time);
   
   //  Stop motors
   stopMotors();
@@ -300,10 +326,11 @@ void checkParkingSpot(float midDistance) {
     
     //  Determine parking type based on length
     if (spotLength >= LATERAL_PARK_LENGTH) {
-      state = 2; // Lateral park
+      state = 2;
     } else if (spotLength >= REVERSE_PARK_LENGTH) {
-      state = 3; // Reverse park
+      state = 3;
     }
+
     //  If too small, continue searching (don't change state)
   }
 }
@@ -342,7 +369,7 @@ void changeState() {
       scanningForPark = false;
       spotLength = 0;
 
-      //  Read temperature
+      //  Read temperature (twice for more accuracy)
       int raw = analogRead(tempPin);
       raw = analogRead(tempPin);
       tempC = raw * (5.0 / 1024.0) * 100.0 - 15.0;
@@ -360,7 +387,7 @@ float readFrontDistance() {
   digitalWrite(trigPinF, LOW);
   
   //  Read distance with a 30 ms timeout
-  float duration = pulseIn(echoPinF, HIGH, 30000);
+  float duration = pulseIn(echoPinF, HIGH);
   if (duration == 0) return 999.0;
   
   return (duration * 0.0343) / 2;
@@ -373,8 +400,8 @@ float readMidDistance() {
   delayMicroseconds(10);
   digitalWrite(trigPinM, LOW);
   
-  //  Read distance with a 30 ms timeout
-  float duration = pulseIn(echoPinM, HIGH, 30000);
+  //  Read distance
+  float duration = pulseIn(echoPinM, HIGH);
   if (duration == 0) return 999.0;
   
   return (duration * 0.0343) / 2;
@@ -387,8 +414,8 @@ float readBackDistance() {
   delayMicroseconds(10);
   digitalWrite(trigPinB, LOW);
   
-  //  Read distance with a 30 ms timeout
-  float duration = pulseIn(echoPinB, HIGH, 30000);
+  //  Read distance
+  float duration = pulseIn(echoPinB, HIGH);
   if (duration == 0) return 999.0;
   
   return (duration * 0.0343) / 2;
