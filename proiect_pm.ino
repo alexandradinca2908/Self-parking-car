@@ -41,7 +41,7 @@ const float CAR_SPEED_CM_PER_MS = 0.04;      // Approximate car speed for distan
 //  Parking parameters
 const float BACK_OBSTACLE_THRESHOLD = 15.0;  // Stop when 15cm from back obstacle
 const int ROTATION_TIME_45_DEG = 1000;       // Time in ms for 45 degree rotation
-const int ERROR_5_DEG = 118;                // Added error for 90 degree rotation
+const int ERROR_5_DEG = -50;                // Added error for 90 degree rotation
 
 //  Button state: 0 = idle, 1 = forward, 2 = found lateral park, 3 = found reverse park
 volatile int state = 0;
@@ -192,14 +192,14 @@ void loop() {
 
 void lateralPark() {
   //  Rotate 45 degrees counter-clockwise
-  rotateCounterClockwise(ROTATION_TIME_45_DEG + ERROR_5_DEG);
+  rotateCounterClockwise(ROTATION_TIME_45_DEG);
   delay(500);
   
   backUpUntilObstacle();
   delay(500);
   
   //  Rotate 45 degrees clockwise
-  rotateClockwise(ROTATION_TIME_45_DEG + ERROR_5_DEG);
+  rotateClockwise(ROTATION_TIME_45_DEG);
   delay(500);
   
   //  Parking complete
@@ -211,6 +211,17 @@ void lateralPark() {
 }
 
 void reversePark() {
+  //  Set up speed for motors
+  analogWrite(enable1, 170);
+  analogWrite(enable2, 170);
+  delay(50);
+
+  //  Back up a little
+  goBackward();
+  delay(250);
+  stopMotors();
+  delay(50);
+
   //  Reset speed
   analogWrite(enable1, 200);
   analogWrite(enable2, 200);
